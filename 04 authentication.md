@@ -360,6 +360,321 @@ def create_access_token(data: str) -> str:
 
 ```
 
+I'll create the backend using Python with FastAPI. We'll set up authentication endpoints with proper error handling and security measures.
+
+
+
+```python
+# app/main.py
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+import jwt
+import secrets
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
+import redis
+import os
+import boto3
+from botocore.exceptions import ClientError
+
+app = FastAPI()
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configuration
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+# Initialize Redis for OTP storage
+redis_client = redis.from_url(REDIS_URL)
+
+# Initialize AWS SNS client for SMS
+sns_client = boto3.client(
+    'sns',
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    region_name=os.getenv('AWS_REGION')
+)
+
+# Pydantic models
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+class PhoneRequest(BaseModel):
+    phone: str
+
+class OTPVerifyRequest(BaseModel):
+    phone: str
+    otp: str
+
+class MagicLinkVerifyRequest(BaseModel):
+    token: str
+
+# Helper functions
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
+    return encoded_jwt
+
+def generate_otp():
+    return ''.join(secrets.choice('0123456789') for _ in range(6))
+
+def send_magic_link_email(email: str, token: str):
+    sender_email = os.getenv("SMTP_USER")
+    sender_password = os.getenv("SMTP_PASSWORD")
+    
+    magic_link = f"https://yourapp.com/verify?token={token}"
+    
+    msg = MIMEText(f"""
+    Hello!
+    
+    Click the following link to sign in:
+    {magic_link}
+    
+    This link will expire in 15 minutes.
+    
+    If you didn't request this link, please ignore this email.
+    """)
+    
+    msg['Subject'] = 'Your Sign-in Link'
+    msg['From'] = sender_email
+    msg['To'] = email
+    
+    try:
+        with smtplib.SMTP(os.getenv("SMTP_HOST"), int(os.getenv("SMTP_PORT"))) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+        return False
+
+# Routes
+@app.post("/auth/magic-link", response_model=dict)
+async def send_magic_link(request: EmailRequest):
+    try:
+        # Generate token
+        token = create_access_token(
+            {"sub": request.email},
+            timedelta(minutes=15)
+        )
+        
+        # Send email
+        if send_magic_link_email(request.email, token):
+            return {"message": "Magic link sent successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send magic link"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+@app.post("/auth/send-otp", response_model=dict)
+async def send_otp(request: PhoneRequest):
+    try:
+        # Generate OTP
+        otp = generate_otp()
+        
+        # Store OTP in Redis with 5-minute expiration
+        redis_client.setex(f"otp:{request.phone}", 300, otp)
+        
+        # Send SMS via AWS SNS
+        response = sns_client.publish(
+            PhoneNumber=request.phone,
+            Message=f"Your OTP is: {otp}. Valid for 5 minutes.",
+            MessageAttributes={
+                'AWS.SNS.SMS.SenderID': {
+                    'DataType': 'String',
+                    'StringValue': 'YourApp'
+                }
+            }
+        )
+        
+        return {"message": "OTP sent successfully"}
+    except ClientError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send OTP: {str(e)}"
+        )
+
+@app.post("/auth/verify-otp", response_model=TokenResponse)
+async def verify_otp(request: OTPVerifyRequest):
+    stored_otp = redis_client.get(f"otp:{request.phone}")
+    
+    if not stored_otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP expired or not found"
+        )
+    
+    if stored_otp.decode() != request.otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP"
+        )
+    
+    # Delete OTP after successful verification
+    redis_client.delete(f"otp:{request.phone}")
+    
+    # Generate access token
+    access_token = create_access_token(
+        data={"sub": request.phone}
+    )
+    
+    return TokenResponse(access_token=access_token)
+
+@app.post("/auth/verify-magic-link", response_model=TokenResponse)
+async def verify_magic_link(request: MagicLinkVerifyRequest):
+    try:
+        # Verify token
+        payload = jwt.decode(request.token, SECRET_KEY, algorithms=["HS256"])
+        email = payload.get("sub")
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid token"
+            )
+        
+        # Generate new access token
+        access_token = create_access_token(
+            data={"sub": email}
+        )
+        
+        return TokenResponse(access_token=access_token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token has expired"
+        )
+    except jwt.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid token"
+        )
+
+# OAuth2 scheme for token authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+@app.get("/auth/me")
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return {"user": payload.get("sub")}
+    except jwt.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+
+```
+
+Now, let's create the environment setup and requirements file:
+
+```text
+# requirements.txt
+fastapi==0.68.0
+uvicorn==0.15.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+pydantic==1.8.2
+email-validator==1.1.3
+python-multipart==0.0.5
+redis==4.0.2
+boto3==1.24.0
+python-dotenv==0.19.0
+
+# .env
+SECRET_KEY=your-secret-key-here
+REDIS_URL=redis://localhost:6379
+AWS_ACCESS_KEY_ID=your-aws-access-key
+AWS_SECRET_ACCESS_KEY=your-aws-secret-key
+AWS_REGION=your-aws-region
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-specific-password
+
+```
+
+To set up and run the backend:
+
+1. **Install Dependencies**:
+```bash
+pip install -r requirements.txt
+```
+
+2. **Set Up Redis**:
+   - Install Redis on your system
+   - Or use Redis Cloud for production
+
+3. **AWS Setup**:
+   - Create an AWS account
+   - Set up IAM user with SNS permissions
+   - Configure AWS credentials
+
+4. **Environment Setup**:
+   - Copy the `.env` template
+   - Fill in your actual credentials
+   - Never commit actual credentials to version control
+
+5. **Run the Server**:
+```bash
+uvicorn main:app --reload
+```
+
+Key Features:
+1. Magic Link Authentication
+2. OTP via SMS
+3. Token-based authentication
+4. Redis for OTP storage
+5. AWS SNS integration for SMS
+6. Email integration for magic links
+7. Security best practices
+8. Error handling
+9. CORS support
+10. Environment configuration
+
+Would you like me to:
+1. Add additional authentication methods?
+2. Implement database integration for user management?
+3. Add more security features?
+4. Create API documentation?
+5. Add rate limiting?
+6. Implement logging and monitoring?
+7. Add unit tests?
+
+Let me know what aspect you'd like to explore further!
+
+
+
+
 To use this authentication system:
 
 1. **Setup Requirements**:
