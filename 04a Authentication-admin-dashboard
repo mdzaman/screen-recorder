@@ -1,0 +1,385 @@
+
+
+I'll create an admin dashboard to manage all these configurations and monitor the authentication system. This will help you manage the system without touching the code.
+
+# Admin Dashboard
+
+```tsx
+import React, { useState } from 'react';
+import { 
+  Settings, 
+  Users, 
+  Key, 
+  Database, 
+  Mail, 
+  MessageSquare, 
+  Shield, 
+  Activity,
+  Save,
+  AlertCircle
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+
+const AdminDashboard = () => {
+  // Configuration state
+  const [config, setConfig] = useState({
+    secretKey: '',
+    awsAccessKey: '',
+    awsSecretKey: '',
+    awsRegion: '',
+    smtpHost: '',
+    smtpPort: '',
+    smtpUser: '',
+    smtpPassword: '',
+    redisUrl: '',
+    appUrl: ''
+  });
+
+  // Stats state
+  const [stats] = useState({
+    totalUsers: 1234,
+    activeUsers: 856,
+    failedLogins: 23,
+    successfulLogins: 789
+  });
+
+  const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('info');
+
+  const handleConfigSave = async (section) => {
+    try {
+      // API call to save configuration would go here
+      setMessage(`${section} settings saved successfully`);
+      setMessageType('success');
+    } catch (error) {
+      setMessage('Error saving settings');
+      setMessageType('error');
+    }
+  };
+
+  const ConfigSection = ({ title, fields }) => (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="text-xl">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4">
+          {fields.map((field) => (
+            <div key={field.key} className="space-y-2">
+              <label className="text-sm font-medium">{field.label}</label>
+              <Input
+                type={field.type || 'text'}
+                value={config[field.key]}
+                onChange={(e) => setConfig({
+                  ...config,
+                  [field.key]: e.target.value
+                })}
+                placeholder={field.placeholder}
+              />
+            </div>
+          ))}
+          <Button 
+            onClick={() => handleConfigSave(title)}
+            className="mt-4"
+          >
+            <Save className="h-4 w-4 mr-2" />
+            Save {title}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const StatCard = ({ title, value, icon: Icon }) => (
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <h3 className="text-2xl font-bold mt-2">{value}</h3>
+          </div>
+          <div className="h-12 w-12 bg-primary/10 rounded-full flex items-center justify-center">
+            <Icon className="h-6 w-6 text-primary" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl font-bold mb-8">Authentication Admin Dashboard</h1>
+
+        {message && (
+          <Alert className={`mb-6 ${messageType === 'error' ? 'bg-red-50' : 'bg-green-50'}`}>
+            <AlertCircle className="h-4 w-4 mr-2" />
+            <AlertDescription>{message}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <StatCard title="Total Users" value={stats.totalUsers} icon={Users} />
+          <StatCard title="Active Users" value={stats.activeUsers} icon={Activity} />
+          <StatCard title="Failed Logins" value={stats.failedLogins} icon={AlertCircle} />
+          <StatCard title="Successful Logins" value={stats.successfulLogins} icon={Shield} />
+        </div>
+
+        <Tabs defaultValue="general">
+          <TabsList className="mb-6">
+            <TabsTrigger value="general">
+              <Settings className="h-4 w-4 mr-2" />
+              General
+            </TabsTrigger>
+            <TabsTrigger value="aws">
+              <Database className="h-4 w-4 mr-2" />
+              AWS
+            </TabsTrigger>
+            <TabsTrigger value="smtp">
+              <Mail className="h-4 w-4 mr-2" />
+              SMTP
+            </TabsTrigger>
+            <TabsTrigger value="redis">
+              <Database className="h-4 w-4 mr-2" />
+              Redis
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="general">
+            <ConfigSection
+              title="General Settings"
+              fields={[
+                { key: 'secretKey', label: 'Secret Key', placeholder: 'Enter application secret key' },
+                { key: 'appUrl', label: 'Application URL', placeholder: 'https://yourapp.com' }
+              ]}
+            />
+          </TabsContent>
+
+          <TabsContent value="aws">
+            <ConfigSection
+              title="AWS Configuration"
+              fields={[
+                { key: 'awsAccessKey', label: 'AWS Access Key', placeholder: 'Enter AWS access key' },
+                { key: 'awsSecretKey', label: 'AWS Secret Key', type: 'password', placeholder: 'Enter AWS secret key' },
+                { key: 'awsRegion', label: 'AWS Region', placeholder: 'e.g., us-east-1' }
+              ]}
+            />
+          </TabsContent>
+
+          <TabsContent value="smtp">
+            <ConfigSection
+              title="SMTP Configuration"
+              fields={[
+                { key: 'smtpHost', label: 'SMTP Host', placeholder: 'e.g., smtp.gmail.com' },
+                { key: 'smtpPort', label: 'SMTP Port', placeholder: 'e.g., 587' },
+                { key: 'smtpUser', label: 'SMTP User', placeholder: 'Enter email address' },
+                { key: 'smtpPassword', label: 'SMTP Password', type: 'password', placeholder: 'Enter SMTP password' }
+              ]}
+            />
+          </TabsContent>
+
+          <TabsContent value="redis">
+            <ConfigSection
+              title="Redis Configuration"
+              fields={[
+                { key: 'redisUrl', label: 'Redis URL', placeholder: 'redis://localhost:6379' }
+              ]}
+            />
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+};
+
+export default AdminDashboard;
+
+```
+
+Now, let's create the backend API for the admin dashboard:
+
+```python
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel
+from typing import Optional
+import json
+import os
+from datetime import datetime
+
+app = FastAPI()
+
+# Models for configuration
+class GeneralConfig(BaseModel):
+    secretKey: str
+    appUrl: str
+
+class AWSConfig(BaseModel):
+    awsAccessKey: str
+    awsSecretKey: str
+    awsRegion: str
+
+class SMTPConfig(BaseModel):
+    smtpHost: str
+    smtpPort: str
+    smtpUser: str
+    smtpPassword: str
+
+class RedisConfig(BaseModel):
+    redisUrl: str
+
+class Stats(BaseModel):
+    totalUsers: int
+    activeUsers: int
+    failedLogins: int
+    successfulLogins: int
+
+# Configuration file paths
+CONFIG_DIR = "config"
+GENERAL_CONFIG_FILE = os.path.join(CONFIG_DIR, "general.json")
+AWS_CONFIG_FILE = os.path.join(CONFIG_DIR, "aws.json")
+SMTP_CONFIG_FILE = os.path.join(CONFIG_DIR, "smtp.json")
+REDIS_CONFIG_FILE = os.path.join(CONFIG_DIR, "redis.json")
+
+# Ensure config directory exists
+os.makedirs(CONFIG_DIR, exist_ok=True)
+
+def save_config(config_data: dict, file_path: str):
+    """Save configuration to file"""
+    try:
+        with open(file_path, 'w') as f:
+            json.dump(config_data, f, indent=2)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save configuration: {str(e)}"
+        )
+
+def load_config(file_path: str) -> dict:
+    """Load configuration from file"""
+    try:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load configuration: {str(e)}"
+        )
+
+# Routes
+@app.post("/admin/config/general")
+async def update_general_config(config: GeneralConfig):
+    save_config(config.dict(), GENERAL_CONFIG_FILE)
+    # Update environment variables
+    os.environ["SECRET_KEY"] = config.secretKey
+    os.environ["APP_URL"] = config.appUrl
+    return {"message": "General configuration updated successfully"}
+
+@app.post("/admin/config/aws")
+async def update_aws_config(config: AWSConfig):
+    save_config(config.dict(), AWS_CONFIG_FILE)
+    # Update environment variables
+    os.environ["AWS_ACCESS_KEY_ID"] = config.awsAccessKey
+    os.environ["AWS_SECRET_ACCESS_KEY"] = config.awsSecretKey
+    os.environ["AWS_REGION"] = config.awsRegion
+    return {"message": "AWS configuration updated successfully"}
+
+@app.post("/admin/config/smtp")
+async def update_smtp_config(config: SMTPConfig):
+    save_config(config.dict(), SMTP_CONFIG_FILE)
+    # Update environment variables
+    os.environ["SMTP_HOST"] = config.smtpHost
+    os.environ["SMTP_PORT"] = config.smtpPort
+    os.environ["SMTP_USER"] = config.smtpUser
+    os.environ["SMTP_PASSWORD"] = config.smtpPassword
+    return {"message": "SMTP configuration updated successfully"}
+
+@app.post("/admin/config/redis")
+async def update_redis_config(config: RedisConfig):
+    save_config(config.dict(), REDIS_CONFIG_FILE)
+    # Update environment variables
+    os.environ["REDIS_URL"] = config.redisUrl
+    return {"message": "Redis configuration updated successfully"}
+
+@app.get("/admin/config/{config_type}")
+async def get_config(config_type: str):
+    config_files = {
+        "general": GENERAL_CONFIG_FILE,
+        "aws": AWS_CONFIG_FILE,
+        "smtp": SMTP_CONFIG_FILE,
+        "redis": REDIS_CONFIG_FILE
+    }
+    
+    if config_type not in config_files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid configuration type"
+        )
+    
+    return load_config(config_files[config_type])
+
+@app.get("/admin/stats")
+async def get_stats():
+    # In a real application, these would come from your database
+    # This is just mock data for demonstration
+    return {
+        "totalUsers": 1234,
+        "activeUsers": 856,
+        "failedLogins": 23,
+        "successfulLogins": 789
+    }
+
+```
+
+To use this admin dashboard:
+
+1. **Access the Dashboard**:
+   - Navigate to `/admin` in your application
+   - Login with admin credentials
+
+2. **Configure Settings**:
+   - General Settings:
+     * Secret Key (for JWT encoding)
+     * Application URL
+   
+   - AWS Settings:
+     * Access Key
+     * Secret Key
+     * Region
+
+   - SMTP Settings:
+     * Host (e.g., smtp.gmail.com)
+     * Port (e.g., 587)
+     * Username
+     * Password
+
+   - Redis Settings:
+     * Redis URL
+
+3. **Monitor Statistics**:
+   - Total users
+   - Active users
+   - Failed login attempts
+   - Successful logins
+
+4. **Security Considerations**:
+   - Add authentication to the admin dashboard
+   - Implement role-based access control
+   - Add audit logging
+   - Encrypt sensitive configuration values
+
+Would you like me to:
+1. Add more monitoring features?
+2. Implement user management?
+3. Add audit logging?
+4. Create backup/restore functionality?
+5. Add more security features?
+6. Implement configuration validation?
+
+Let me know what aspects you'd like to explore further!
