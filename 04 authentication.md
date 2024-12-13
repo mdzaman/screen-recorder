@@ -6,7 +6,7 @@ First, let's create the UI components for the authentication flow:
 
 ```tsx
 import React, { useState } from 'react';
-import { Mail, Phone, Key, Github, Twitter, Google } from 'lucide-react';
+import { Mail, Phone, Key, Github, Twitter, Chrome } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,7 +161,7 @@ const AuthModule = () => {
               onClick={() => handleSocialLogin('google')}
               className="w-full"
             >
-              <Google className="h-4 w-4" />
+              <Chrome className="h-4 w-4" />
             </Button>
             <Button
               variant="outline"
